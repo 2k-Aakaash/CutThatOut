@@ -65,7 +65,7 @@ export default function Header({
             <Sparkles className="size-4 text-black" />
           </div>
           <span className="font-extrabold text-base tracking-wider bg-gradient-to-r from-foreground via-foreground to-primary bg-clip-text text-transparent">
-            APEX BG REMOVER
+            Cut That Out
           </span>
         </div>
         <div className="hidden md:block w-px h-5 bg-border" />
