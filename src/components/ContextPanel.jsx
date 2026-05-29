@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Check, Trash2, Cpu, FileImage, Sliders, Image, Sparkles, Undo, Redo } from "lucide-react";
@@ -29,8 +30,54 @@ export default function ContextPanel({
   canUndo,
   canRedo,
   onUndo,
-  onRedo
+  onRedo,
+  telemetry
 }) {
+  const [cachedModels, setCachedModels] = useState({
+    isnet: false,
+    isnet_fp16: false,
+    isnet_quint8: false
+  });
+
+  useEffect(() => {
+    const checkCache = async () => {
+      if (typeof window === 'undefined' || !window.caches) return;
+      try {
+        const cacheNames = await window.caches.keys();
+        const imglyCacheName = cacheNames.find(name => name.includes("background-removal") || name.includes("imgly"));
+        
+        let hasIsnet = false;
+        let hasIsnetFp16 = false;
+        let hasIsnetQuint8 = false;
+
+        if (imglyCacheName) {
+          const cache = await window.caches.open(imglyCacheName);
+          const requests = await cache.keys();
+          const urls = requests.map(req => req.url);
+          
+          hasIsnet = urls.some(url => url.includes("isnet.onnx"));
+          hasIsnetFp16 = urls.some(url => url.includes("isnet_fp16.onnx"));
+          hasIsnetQuint8 = urls.some(url => url.includes("isnet_quint8.onnx"));
+        }
+        
+        setCachedModels({
+          isnet: hasIsnet,
+          isnet_fp16: hasIsnetFp16,
+          isnet_quint8: hasIsnetQuint8
+        });
+      } catch (err) {
+        console.warn("Failed to check cache:", err);
+      }
+    };
+
+    checkCache();
+    const interval = setInterval(checkCache, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+
+
+
   const isMac = typeof window !== 'undefined' && /Mac|iPad|iPhone|iPod/.test(window.navigator.userAgent || window.navigator.platform || "");
 
   const solidColors = [
@@ -101,13 +148,27 @@ export default function ContextPanel({
                   <SelectValue placeholder="Select Neural Model" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="isnet">isnet (Standard Size)</SelectItem>
+                  <SelectItem value="isnet_quint8">isnet_quint8 (Ultra-Lightweight: ~17.6MB)</SelectItem>
                   <SelectItem value="isnet_fp16" disabled={!gpuF16Supported}>
-                    isnet_fp16 {!gpuF16Supported && "(FP16 Unsupported)"}
+                    isnet_fp16 (Compressed: ~30MB) {!gpuF16Supported && "(FP16 Unsupported)"}
                   </SelectItem>
-                  <SelectItem value="isnet_quint8">isnet_quint8 (Ultra-Lightweight)</SelectItem>
+                  <SelectItem value="isnet">isnet (Standard Size: ~30MB)</SelectItem>
                 </SelectContent>
               </Select>
+              
+              {/* Dynamic Cache Status Badges */}
+              <div className="flex items-center justify-between text-[9px] bg-zinc-950/40 p-1.5 rounded border border-zinc-800/40 mt-1 select-none font-mono">
+                <span className="text-muted-foreground">Cache Status:</span>
+                {cachedModels[config.model] ? (
+                  <span className="text-emerald-400 font-extrabold flex items-center gap-0.5">
+                    <Check className="size-2.5" /> CACHED ⚡
+                  </span>
+                ) : (
+                  <span className="text-amber-400 font-bold flex items-center gap-0.5 animate-pulse">
+                    ⬇️ DOWNLOAD NEEDED (~{config.model === "isnet_quint8" ? "17" : "30"}MB)
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -132,7 +193,7 @@ export default function ContextPanel({
               </Select>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Processing Core</label>
               <div className="flex gap-2">
                 <Button
@@ -211,18 +272,34 @@ export default function ContextPanel({
                   <div className="flex gap-1 bg-zinc-950/40 p-0.5 rounded border border-zinc-800">
                     <button
                       onClick={() => setBrushMode("erase")}
-                      className={`flex-1 py-1 text-[9px] font-bold rounded capitalize transition duration-150 ${brushMode === "erase" ? "bg-zinc-800 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex-1 py-1 text-[8px] font-bold rounded capitalize transition duration-150 ${brushMode === "erase" ? "bg-zinc-800 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      title="Smart Erase (Make foreground pixels transparent)"
                     >
-                      Smart Erase (Debris)
+                      Erase
+                    </button>
+                    <button
+                      onClick={() => setBrushMode("recover")}
+                      className={`flex-1 py-1 text-[8px] font-bold rounded capitalize transition duration-150 ${brushMode === "recover" ? "bg-zinc-800 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      title="Recover Background (Restore original pixels by painting)"
+                    >
+                      Recover
                     </button>
                     <button
                       onClick={() => setBrushMode("inpaint")}
-                      className={`flex-1 py-1 text-[9px] font-bold rounded capitalize transition duration-150 ${brushMode === "inpaint" ? "bg-zinc-800 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex-1 py-1 text-[8px] font-bold rounded capitalize transition duration-150 ${brushMode === "inpaint" ? "bg-zinc-800 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      title="Smart Inpaint (AI fill/object removal on source image)"
                     >
-                      AI Inpaint (Removal)
+                      Inpaint
                     </button>
                   </div>
                 </div>
+
+                <div className="text-[9px] text-muted-foreground bg-zinc-950/20 p-1.5 rounded border border-zinc-800/40 font-medium leading-normal select-none">
+                  {brushMode === "erase" && "✏️ Erase: Paints transparent pixels to clean up cutout edges."}
+                  {brushMode === "recover" && "🔄 Recover: Paints original background pixels back into the cutout."}
+                  {brushMode === "inpaint" && "🪄 Inpaint: Fills the selected area using surrounding pixel structures."}
+                </div>
+
 
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-[9px] font-bold text-muted-foreground uppercase tracking-wider">

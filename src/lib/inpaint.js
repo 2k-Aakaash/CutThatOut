@@ -92,3 +92,22 @@ export const eraseRegion = (imageData, maskData, width, height) => {
     }
   }
 };
+
+/**
+ * Recover the background from the original image (copy original RGBA values).
+ */
+export const recoverRegion = (imageData, originalData, maskData) => {
+  const img = imageData.data;
+  const orig = originalData.data;
+  const mask = maskData.data;
+
+  for (let i = 0; i < mask.length; i += 4) {
+    if (mask[i] > 128) {
+      img[i] = orig[i];         // R
+      img[i + 1] = orig[i + 1]; // G
+      img[i + 2] = orig[i + 2]; // B
+      img[i + 3] = orig[i + 3]; // A (Restored opacity)
+    }
+  }
+};
+

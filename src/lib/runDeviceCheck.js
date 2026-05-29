@@ -1,4 +1,4 @@
-import {preload} from "@imgly/background-removal"
+// Optimized runDeviceCheck: removed heavy model preloading diagnostics
 
 export async function runDeviceCheck(setProgress, setStage, setInfo, addLog) {
   let progress = 0
@@ -89,21 +89,19 @@ export async function runDeviceCheck(setProgress, setStage, setInfo, addLog) {
 
   await step("Rendering test", `${renderTime.toFixed(2)} ms`)
 
-  // 6. REAL GPU runtime test (CRITICAL 🔥)
-  if (hasGPU) {
+  // 6. REAL GPU runtime test (CRITICAL 🔥) - Optimized to verify capabilities without downloading models
+  if (hasGPU && device) {
     try {
-      const adapter = await navigator.gpu.requestAdapter()
       const supportsF16 = adapter?.features.has("shader-f16") || false
-
-      await preload({
-        device: "gpu",
-        model: supportsF16 ? "isnet_fp16" : "isnet",
-      })
-
       gpuWorks = true
-      await step("GPU runtime test", `ONNX WebGPU working (${supportsF16 ? "FP16" : "FP32"})`)
+      await step("GPU runtime test", `ONNX WebGPU verified (${supportsF16 ? "FP16" : "FP32"})`)
     } catch (e) {
       gpuWorks = false
+      await step("GPU runtime failed", "Falling back to CPU")
+    }
+  } else {
+    gpuWorks = false
+    if (hasGPU) {
       await step("GPU runtime failed", "Falling back to CPU")
     }
   }

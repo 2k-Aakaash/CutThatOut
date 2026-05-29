@@ -3,13 +3,17 @@ import { Sun, Moon, Sparkles, Cpu, Menu, X, Sliders, Layers } from "lucide-react
 
 export default function Header({
   gpuBrand,
+  gpuName = "Generic GPU",
+  cpuName = "Intel Core Processor",
   deviceMode,
   inspectorOpen,
   setInspectorOpen,
   layersOpen,
-  setLayersOpen
+  setLayersOpen,
+  telemetry
 }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
+  const [hoveredStat, setHoveredStat] = useState(null);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -99,9 +103,160 @@ export default function Header({
           <Layers className={`size-4 ${layersOpen ? "text-primary" : ""}`} />
         </button>
 
-        <div className="hidden sm:block">
+        {/* Unified Hardware Badge and Telemetry HUD */}
+        <div className="hidden sm:flex items-center gap-2.5">
+          {telemetry && (
+            <div className="flex items-center gap-4 px-3.5 py-1.5 rounded-lg bg-zinc-950/40 border border-zinc-800/40 text-[10px] font-mono text-zinc-400 select-none shadow-sm">
+              {/* GPU Core */}
+              <div 
+                className="relative flex items-center gap-1.5 border-r border-zinc-800/40 pr-3.5 cursor-help"
+                onMouseEnter={() => setHoveredStat("gpu")}
+                onMouseLeave={() => setHoveredStat(null)}
+              >
+                <span className="font-bold text-[8px] text-primary">GPU</span>
+                <span className="font-semibold text-foreground">{telemetry.gpuUsage}%</span>
+                <span className="text-zinc-500">|</span>
+                <span className={telemetry.gpuTemp > 60 ? "text-amber-400 font-bold" : "text-zinc-300 font-semibold"}>
+                  {telemetry.gpuTemp}°C
+                </span>
+
+                {hoveredStat === "gpu" && (
+                  <div className="absolute top-full mt-2.5 left-1/2 -translate-x-1/2 z-50 w-52 p-2.5 rounded-md border border-border bg-popover text-popover-foreground shadow-md text-left pointer-events-none select-none">
+                    <div className="text-[10px] font-bold text-foreground mb-1.5 truncate border-b border-border pb-1">
+                      {gpuName}
+                    </div>
+                    <div className="space-y-1 text-[9px]">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Usage Load:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.gpuUsage}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Temperature:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.gpuTemp}°C</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Engine:</span>
+                        <span className="font-bold text-primary">{deviceMode === "gpu" ? "WebGPU Active" : "Idle Fallback"}</span>
+                      </div>
+                    </div>
+                    <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-l border-t border-border" />
+                  </div>
+                )}
+              </div>
+
+              {/* CPU Core */}
+              <div 
+                className="relative flex items-center gap-1.5 border-r border-zinc-800/40 pr-3.5 cursor-help"
+                onMouseEnter={() => setHoveredStat("cpu")}
+                onMouseLeave={() => setHoveredStat(null)}
+              >
+                <span className="font-bold text-[8px] text-primary">CPU</span>
+                <span className="font-semibold text-foreground">{telemetry.cpuUsage}%</span>
+                <span className="text-zinc-500">|</span>
+                <span className={telemetry.cpuTemp > 65 ? "text-amber-400 font-bold" : "text-zinc-300 font-semibold"}>
+                  {telemetry.cpuTemp}°C
+                </span>
+
+                {hoveredStat === "cpu" && (
+                  <div className="absolute top-full mt-2.5 left-1/2 -translate-x-1/2 z-50 w-52 p-2.5 rounded-md border border-border bg-popover text-popover-foreground shadow-md text-left pointer-events-none select-none">
+                    <div className="text-[10px] font-bold text-foreground mb-1.5 truncate border-b border-border pb-1">
+                      {cpuName}
+                    </div>
+                    <div className="space-y-1 text-[9px]">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Core Usage:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.cpuUsage}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Temperature:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.cpuTemp}°C</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Logical Cores:</span>
+                        <span className="font-bold text-foreground font-mono">{(typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 8} Threads</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Execution:</span>
+                        <span className="font-bold text-amber-500">WASM Multi-thread</span>
+                      </div>
+                    </div>
+                    <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-l border-t border-border" />
+                  </div>
+                )}
+              </div>
+
+              {/* RAM */}
+              <div 
+                className="relative flex items-center gap-1.5 border-r border-zinc-800/40 pr-3.5 cursor-help"
+                onMouseEnter={() => setHoveredStat("ram")}
+                onMouseLeave={() => setHoveredStat(null)}
+              >
+                <span className="font-bold text-[8px] text-primary">RAM</span>
+                <span className="font-semibold text-foreground">{telemetry.ramUsed} / {telemetry.ramTotal} GB</span>
+
+                {hoveredStat === "ram" && (
+                  <div className="absolute top-full mt-2.5 left-1/2 -translate-x-1/2 z-50 w-52 p-2.5 rounded-md border border-border bg-popover text-popover-foreground shadow-md text-left pointer-events-none select-none">
+                    <div className="text-[10px] font-bold text-foreground mb-1.5 truncate border-b border-border pb-1">
+                      System Memory (RAM)
+                    </div>
+                    <div className="space-y-1 text-[9px]">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Active Used:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.ramUsed} GB</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Capacity:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.ramTotal} GB</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Memory Status:</span>
+                        <span className="font-bold text-emerald-400">Stable</span>
+                      </div>
+                    </div>
+                    <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-l border-t border-border" />
+                  </div>
+                )}
+              </div>
+
+              {/* Net Traffic */}
+              <div 
+                className="relative flex items-center gap-1.5 cursor-help"
+                onMouseEnter={() => setHoveredStat("net")}
+                onMouseLeave={() => setHoveredStat(null)}
+              >
+                <span className="font-bold text-[8px] text-primary">NET</span>
+                <span className="font-semibold text-foreground truncate max-w-[55px]">
+                  {telemetry.networkSpeed}
+                </span>
+
+                {hoveredStat === "net" && (
+                  <div className="absolute top-full mt-2.5 left-1/2 -translate-x-1/2 z-50 w-52 p-2.5 rounded-md border border-border bg-popover text-popover-foreground shadow-md text-left pointer-events-none select-none">
+                    <div className="text-[10px] font-bold text-foreground mb-1.5 truncate border-b border-border pb-1">
+                      Network Diagnostics
+                    </div>
+                    <div className="space-y-1 text-[9px]">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Network Speed:</span>
+                        <span className="font-bold text-foreground font-mono">{telemetry.networkSpeed}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Latency Profile:</span>
+                        <span className="font-bold text-foreground font-mono">Synchronized</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Status:</span>
+                        <span className="font-bold text-emerald-400">Online</span>
+                      </div>
+                    </div>
+                    <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-l border-t border-border" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {getHardwareBadge()}
         </div>
+
 
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

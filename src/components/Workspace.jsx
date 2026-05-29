@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Download, RefreshCw, Upload, Sparkles, Image, Check, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { eraseRegion, inpaintImage } from "../lib/inpaint";
+import { eraseRegion, inpaintImage, recoverRegion } from "../lib/inpaint";
 
 export default function Workspace({
   image,
@@ -15,6 +15,7 @@ export default function Workspace({
   layersOpacity,
   handleProcess,
   preloading,
+  preloadProgress,
   activeRetouchTool,
   setActiveRetouchTool,
   brushRadius,
@@ -29,6 +30,7 @@ export default function Workspace({
   const canvasRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const maskCanvasRef = useRef(null);
+  const originalCanvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
   const [mousePos, setMousePos] = useState({ x: 0, y: 0, visible: false });
@@ -77,7 +79,21 @@ export default function Workspace({
         maskCtx.fillStyle = "#000000";
         maskCtx.fillRect(0, 0, mCanvas.width, mCanvas.height);
       };
-      img.src = brushMode === "erase" ? result : original;
+      // For "erase" and "recover" modes, load the cutout (result). For "inpaint", load original.
+      img.src = (brushMode === "erase" || brushMode === "recover") ? result : original;
+
+      // Load original image into offscreen canvas for background recovery
+      const origImg = new window.Image();
+      origImg.crossOrigin = "anonymous";
+      origImg.onload = () => {
+        const origCanvas = document.createElement("canvas");
+        origCanvas.width = origImg.naturalWidth;
+        origCanvas.height = origImg.naturalHeight;
+        const origCtx = origCanvas.getContext("2d");
+        origCtx.drawImage(origImg, 0, 0);
+        originalCanvasRef.current = origCanvas;
+      };
+      origImg.src = original;
     }
   }, [activeRetouchTool, brushMode, original, result]);
 
@@ -86,10 +102,9 @@ export default function Workspace({
     if (!activeRetouchTool) { setZoom(1); setPan({ x: 0, y: 0 }); }
   }, [activeRetouchTool]);
 
-  // Ctrl+Wheel zoom handler attached to the canvas wrapper
+  // Ctrl+Wheel zoom handler globally registered when activeRetouchTool is open
   useEffect(() => {
-    const el = canvasWrapperRef.current;
-    if (!el) return;
+    if (!activeRetouchTool) return;
 
     const onWheel = (e) => {
       if (!e.ctrlKey) return;
@@ -98,9 +113,8 @@ export default function Workspace({
       setZoom((z) => clampZoom(parseFloat((z + delta).toFixed(2))));
     };
 
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
   }, [activeRetouchTool]);
 
   // Space key for pan cursor
@@ -182,13 +196,18 @@ export default function Workspace({
     const overlayCanvas = overlayCanvasRef.current;
     if (!canvas || !maskCanvas) return;
     
+    // Dynamically calculate scale ratio between internal canvas resolution and screen display box
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const canvasBrushWidth = brushRadius * scaleX;
+    
     const maskCtx = maskCanvas.getContext("2d");
     
     // 1. Draw solid white stroke on mask canvas (used for processing)
     maskCtx.strokeStyle = "#ffffff";
     maskCtx.lineJoin = "round";
     maskCtx.lineCap = "round";
-    maskCtx.lineWidth = brushRadius;
+    maskCtx.lineWidth = canvasBrushWidth;
     maskCtx.beginPath();
     maskCtx.moveTo(start.x, start.y);
     maskCtx.lineTo(end.x, end.y);
@@ -205,7 +224,7 @@ export default function Workspace({
       oCtx.strokeStyle = "rgba(239, 68, 68, 0.55)";
       oCtx.lineJoin = "round";
       oCtx.lineCap = "round";
-      oCtx.lineWidth = brushRadius;
+      oCtx.lineWidth = canvasBrushWidth;
       oCtx.beginPath();
       oCtx.moveTo(start.x, start.y);
       oCtx.lineTo(end.x, end.y);
@@ -243,6 +262,22 @@ export default function Workspace({
           setResult(newUrl);
         }
       }, "image/png");
+    } else if (brushMode === "recover") {
+      const origCanvas = originalCanvasRef.current;
+      if (origCanvas) {
+        const origCtx = origCanvas.getContext("2d");
+        const origData = origCtx.getImageData(0, 0, origCanvas.width, origCanvas.height);
+        
+        recoverRegion(imgData, origData, maskData);
+        ctx.putImageData(imgData, 0, 0);
+        
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const newUrl = URL.createObjectURL(blob);
+            setResult(newUrl);
+          }
+        }, "image/png");
+      }
     } else {
       inpaintImage(imgData, maskData, canvas.width, canvas.height, 5);
       ctx.putImageData(imgData, 0, 0);
@@ -255,6 +290,7 @@ export default function Workspace({
       }, "image/png");
     }
   };
+
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -490,7 +526,7 @@ export default function Workspace({
                     style={{
                       transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                       transformOrigin: "center center",
-                      transition: isPanning.current ? "none" : "transform 0.05s ease",
+                      transition: (isPanning.current || isDrawing) ? "none" : "transform 0.05s ease",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -498,25 +534,29 @@ export default function Workspace({
                       height: "100%",
                     }}
                   >
-                    <canvas
-                      ref={canvasRef}
-                      onMouseDown={(e) => { if (!spaceHeld.current && e.button !== 1) startDrawing(e); }}
-                      onMouseMove={(e) => { if (!spaceHeld.current) draw(e); }}
-                      onMouseUp={(e) => { endDrawing(); }}
-                      onMouseLeave={endDrawing}
-                      onTouchStart={startDrawing}
-                      onTouchMove={draw}
-                      onTouchEnd={endDrawing}
-                      className="max-w-full max-h-full object-contain shadow-2xl select-none"
-                      style={{ touchAction: "none", cursor: "none" }}
-                    />
-                    {/* Red brush preview overlay — purely visual, never read for output */}
-                    <canvas
-                      ref={overlayCanvasRef}
-                      className="absolute inset-0 max-w-full max-h-full object-contain pointer-events-none select-none"
-                      style={{ touchAction: "none" }}
-                    />
+                    {/* Aspect-perfect overlay wrapper container div */}
+                    <div className="relative max-w-full max-h-full flex items-center justify-center">
+                      <canvas
+                        ref={canvasRef}
+                        onMouseDown={(e) => { if (!spaceHeld.current && e.button !== 1) startDrawing(e); }}
+                        onMouseMove={(e) => { if (!spaceHeld.current) draw(e); }}
+                        onMouseUp={(e) => { endDrawing(); }}
+                        onMouseLeave={endDrawing}
+                        onTouchStart={startDrawing}
+                        onTouchMove={draw}
+                        onTouchEnd={endDrawing}
+                        className="max-w-full max-h-full object-contain shadow-2xl select-none"
+                        style={{ touchAction: "none", cursor: "none" }}
+                      />
+                      {/* Red brush preview overlay — synced down to the exact pixel */}
+                      <canvas
+                        ref={overlayCanvasRef}
+                        className="absolute inset-0 w-full h-full pointer-events-none select-none"
+                        style={{ touchAction: "none" }}
+                      />
+                    </div>
                   </div>
+
 
                   {/* Brush cursor overlay */}
                   {mousePos.visible && !spaceHeld.current && (
@@ -664,7 +704,11 @@ export default function Workspace({
                 {preloading ? (
                   <>
                     <RefreshCw className="size-3.5 animate-spin" />
-                    <span>Loading Engine...</span>
+                    <span>
+                      {preloadProgress !== null && preloadProgress > 0 && preloadProgress < 100
+                        ? `Downloading AI (${preloadProgress}%)`
+                        : "Initializing Engine..."}
+                    </span>
                   </>
                 ) : isProcessing ? (
                   <>
@@ -679,13 +723,34 @@ export default function Workspace({
                 )}
               </Button>
             ) : (
-              <Button
-                onClick={handleCompositeDownload}
-                className="font-semibold text-xs px-6 gap-2"
-              >
-                <Download className="size-3.5" />
-                <span>Download Composite</span>
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleCompositeDownload}
+                  className="font-semibold text-xs px-6 gap-2"
+                >
+                  <Download className="size-3.5" />
+                  <span>Download Composite</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleProcess}
+                  disabled={isProcessing || preloading}
+                  className="font-semibold text-xs px-4 gap-2 border border-zinc-800 bg-zinc-950/20 hover:bg-zinc-800 text-zinc-300 transition duration-150"
+                  title="Re-run background removal with the currently selected model"
+                >
+                  {isProcessing ? (
+                    <>
+                      <RefreshCw className="size-3.5 animate-spin text-primary" />
+                      <span>Re-processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="size-3.5 text-zinc-400" />
+                      <span>Re-run AI</span>
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
 
             <Button
